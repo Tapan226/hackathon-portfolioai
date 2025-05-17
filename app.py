@@ -8,28 +8,42 @@ from fpdf import FPDF
 from io import BytesIO
 from docx import Document
 
-# ── Init & Config ──────────────────────────────────────────────────────────────
+# ── Load API key ───────────────────────────────────────────────────────────────
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
-    st.error("❌ GROQ_API_KEY missing in .env. Add it and restart.")
+    st.error("❌ API key missing in .env. Please add GROQ_API_KEY and restart.")
     st.stop()
 
-st.set_page_config(page_title="CV & Cover Letter Generator", layout="centered")
-st.title("🎯 CV & Cover Letter Generator (Groq Cloud)")
+# ── Page config & header ──────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="AI CV & Cover Letter Generator",
+    layout="centered",
+)
+st.markdown(
+    """
+    # 🚀 AI-Powered CV & Cover Letter Generator
 
-# Initialize session state
+    **Transform your resume** and a job description into a **tailored, one-page CV**  
+    and a **crisp, professional cover letter**—all in seconds.  
+    Upload your current resume, paste in the JD, and watch our AI craft compelling applications  
+    that elevate your chances and make you stand out.
+    """,
+    unsafe_allow_html=True,
+)
+
+# ── Session state ──────────────────────────────────────────────────────────────
 if "cv_out" not in st.session_state:
     st.session_state.cv_out = None
 if "cover_out" not in st.session_state:
     st.session_state.cover_out = None
 
-# ── UI Inputs ───────────────────────────────────────────────────────────────────
+# ── Inputs ──────────────────────────────────────────────────────────────────────
 resume_file = st.file_uploader("📄 Upload your resume (PDF)", type=["pdf"])
 jd = st.text_area(
-    "🧐 Paste the Job Description here:",
+    "📝 Paste the Job Description here",
     height=200,
-    placeholder="e.g. “Seeking an experienced Python developer with AWS…”"
+    placeholder="e.g. “Seeking a Senior Python Developer with AWS experience…”"
 )
 
 # ── Helpers ─────────────────────────────────────────────────────────────────────
@@ -39,21 +53,21 @@ def parse_resume(pdf_file) -> str:
 
 def generate_documents(resume_text: str, jd_text: str) -> tuple[str, str]:
     prompt = (
-        "You are a career coach. Given the candidate’s resume below and the job description, produce:\n\n"
-        "1) A complete, one-page professional CV formatted with Markdown headings:\n"
+        "You are an expert career coach. Given the candidate’s resume below and the job description, produce:\n\n"
+        "1) A complete, one-page CV with Markdown headings:\n"
         "   ## Name & Contact Information\n"
         "   ## Professional Summary\n"
         "   ## Key Skills\n"
         "   ## Work Experience\n"
         "   ## Education & Certifications\n\n"
-        "2) A crisp, professional cover letter addressed “Dear Hiring Manager,” tailored to the role.\n\n"
+        "2) A sharp, professional cover letter addressed “Dear Hiring Manager,” tailored to this role.\n\n"
         "=== Resume ===\n"
         f"{resume_text}\n\n"
         "=== Job Description ===\n"
         f"{jd_text}\n\n"
-        "Return the CV first, then on its own line “---”, then the cover letter."
+        "Return the CV first, then on a new line “---”, then the cover letter."
     )
-    r = requests.post(
+    response = requests.post(
         "https://api.groq.com/openai/v1/chat/completions",
         headers={
             "Content-Type": "application/json",
@@ -66,13 +80,13 @@ def generate_documents(resume_text: str, jd_text: str) -> tuple[str, str]:
             "max_tokens": 1500
         }
     )
-    r.raise_for_status()
-    content = r.json()["choices"][0]["message"]["content"]
+    response.raise_for_status()
+    content = response.json()["choices"][0]["message"]["content"]
     cv_text, cover_text = content.split("---", 1)
     return cv_text.strip(), cover_text.strip()
 
 def render_pdf(text: str) -> bytes:
-    # Replace bullets with dashes, normalize to ASCII
+    # Replace bullets with dashes & strip to ASCII
     text = text.replace("•", "-")
     safe = (
         unicodedata.normalize("NFKD", text)
@@ -109,61 +123,47 @@ def render_pdf(text: str) -> bytes:
 def render_docx(text: str) -> bytes:
     doc = Document()
     for line in text.split("\n"):
-        if line.strip() == "":
-            doc.add_paragraph()
-        else:
-            doc.add_paragraph(line)
+        doc.add_paragraph(line)
     buf = BytesIO()
     doc.save(buf)
     return buf.getvalue()
 
-# ── Generate Action ────────────────────────────────────────────────────────────
+# ── Generation trigger ─────────────────────────────────────────────────────────
 if st.button("🚀 Generate"):
     if not resume_file or not jd.strip():
-        st.warning("⚠️ Please upload a resume PDF and paste a job description.")
+        st.warning("⚠️ Please upload your resume and paste a job description.")
     else:
         with st.spinner("🔍 Parsing resume…"):
             resume_text = parse_resume(resume_file)
-        with st.spinner("✍️ Generating…"):
+        with st.spinner("✍️ Crafting your documents…"):
             try:
                 cv, cover = generate_documents(resume_text, jd)
             except requests.HTTPError as e:
-                st.error(f"❌ API request failed: {e}")
+                st.error(f"❌ API error: {e}")
             else:
-                # Store in session state so it persists
                 st.session_state.cv_out = cv
                 st.session_state.cover_out = cover
 
-# ── Display Generated & Download ───────────────────────────────────────────────
+# ── Show & Download ────────────────────────────────────────────────────────────
 if st.session_state.cv_out:
-    st.subheader("📝 Your One-Page CV")
+    st.subheader("📝 Your Personalized CV")
     st.write(st.session_state.cv_out)
     pdf_cv = render_pdf(st.session_state.cv_out)
     docx_cv = render_docx(st.session_state.cv_out)
-    st.download_button(
-        "📥 Download CV (PDF)",
-        pdf_cv,
-        "custom_cv.pdf",
-        "application/pdf"
-    )
+    st.download_button("📥 Download CV (PDF)", pdf_cv, "cv.pdf", "application/pdf")
     st.download_button(
         "📥 Download CV (DOCX)",
         docx_cv,
-        "custom_cv.docx",
+        "cv.docx",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
 
 if st.session_state.cover_out:
-    st.subheader("📄 Your Cover Letter")
+    st.subheader("📄 Your Tailored Cover Letter")
     st.write(st.session_state.cover_out)
     pdf_cl = render_pdf(st.session_state.cover_out)
     docx_cl = render_docx(st.session_state.cover_out)
-    st.download_button(
-        "📥 Download Cover Letter (PDF)",
-        pdf_cl,
-        "cover_letter.pdf",
-        "application/pdf"
-    )
+    st.download_button("📥 Download Cover Letter (PDF)", pdf_cl, "cover_letter.pdf", "application/pdf")
     st.download_button(
         "📥 Download Cover Letter (DOCX)",
         docx_cl,
