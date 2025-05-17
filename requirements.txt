@@ -1,4 +1,6 @@
 streamlit
-openai
+requests
 PyPDF2
 python-dotenv
+fpdf
+python-docx
